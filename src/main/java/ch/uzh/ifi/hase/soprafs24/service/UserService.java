@@ -91,7 +91,6 @@ public class UserService {
     if (user.getId() != null && userRepository.existsById(user.getId())) {
         // Save updates to the user
         userRepository.save(user);
-        userRepository.flush();
 
         log.debug("Updated Information for User: {}", user);
         return user;

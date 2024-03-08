@@ -3,9 +3,12 @@ package ch.uzh.ifi.hase.soprafs24.controller;
 import ch.uzh.ifi.hase.soprafs24.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs24.entity.User;
 import ch.uzh.ifi.hase.soprafs24.rest.dto.UserPostDTO;
+import ch.uzh.ifi.hase.soprafs24.rest.dto.UserUpdateDTO;
 import ch.uzh.ifi.hase.soprafs24.service.UserService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.aspectj.lang.annotation.Before;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,8 +16,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Collections;
@@ -22,7 +27,14 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,6 +54,109 @@ public class UserControllerTest {
 
   @MockBean
   private UserService userService;
+
+  @Test
+  public void createUser_usernameAlreadyExists_throwsException() throws Exception {
+      // given
+      UserPostDTO userPostDTO = new UserPostDTO();
+      userPostDTO.setUsername("existingUsername");
+
+      // when userService.createUser() is called with an already existing username, then throw ResponseStatusException
+      given(userService.createUser(Mockito.any())).willThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Username already exists"));
+
+      // when/then -> do the request + validate the result
+      MockHttpServletRequestBuilder postRequest = post("/users")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(asJsonString(userPostDTO));
+
+      // then
+      mockMvc.perform(postRequest)
+              .andExpect(status().isConflict());
+  }
+
+  @Test
+  public void getUserProfile_userExists_returnsUserProfile() throws Exception {
+      // given
+      Long userId = 1L;
+      User user = new User();
+      user.setId(userId);
+      user.setUsername("testUsername");
+
+      given(userService.findUserById(userId)).willReturn(user);
+
+      // when
+      MockHttpServletRequestBuilder getRequest = get("/users/{userId}", userId)
+              .contentType(MediaType.APPLICATION_JSON);
+
+      // then
+      mockMvc.perform(getRequest)
+              .andExpect(status().isOk())
+              .andExpect(jsonPath("$.id", is(userId.intValue())))
+              .andExpect(jsonPath("$.username", is(user.getUsername())));
+  }
+
+  @Test
+  public void getUserProfile_userDoesNotExist_throwsException() throws Exception {
+      // given
+      Long userId = 99L; // non-existing user ID
+
+      // when userService.getUserById() is called with a non-existing userId, then throw ResponseStatusException
+      given(userService.findUserById(userId)).willThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+      // when
+      MockHttpServletRequestBuilder getRequest = get("/users/{userId}", userId)
+              .contentType(MediaType.APPLICATION_JSON);
+
+      // then
+      mockMvc.perform(getRequest)
+              .andExpect(status().isNotFound());
+  }
+
+  @Test
+  public void updateUserProfile_userExists_userUpdated() throws Exception {
+      // given
+      Long userId = 1L;
+      User user = new User();
+      user.setId(userId);
+      user.setUsername("originalUsername");
+
+      User updatedUser = new User();
+      updatedUser.setId(userId);
+      updatedUser.setUsername("updatedUsername");
+
+      given(userService.findUserById(userId)).willReturn(user); // Assuming the method is called findById
+      given(userService.updateUser(any(User.class))).willReturn(updatedUser); // Assuming the method is called save
+
+      // when/then -> do the request + validate the result
+      MockHttpServletRequestBuilder putRequest = MockMvcRequestBuilders.put("/users/{userId}", userId)
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(asJsonString(updatedUser));
+
+      // then
+      mockMvc.perform(putRequest)
+              .andExpect(status().isNoContent());
+  }
+
+  @Test
+  public void updateUserProfile_userDoesNotExist_returnsNotFound() throws Exception {
+      // given
+      Long nonExistentUserId = 99L; // A user ID that does not exist
+      UserUpdateDTO userUpdateDTO = new UserUpdateDTO();
+      userUpdateDTO.setUsername("updatedUsername");
+  
+      // when userService.findUserById() is called with a non-existing userId, return null
+      given(userService.findUserById(nonExistentUserId)).willReturn(null);
+  
+      // when/then -> perform the request and validate the result
+      MockHttpServletRequestBuilder putRequest = MockMvcRequestBuilders.put("/users/{userId}", nonExistentUserId)
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(asJsonString(userUpdateDTO));
+  
+      // then
+      mockMvc.perform(putRequest)
+              .andExpect(status().isNotFound())
+              .andExpect(jsonPath("$.Error", is("User id " + nonExistentUserId + " was not found")));
+  }
 
   @Test
   public void givenUsers_whenGetUsers_thenReturnJsonArray() throws Exception {
